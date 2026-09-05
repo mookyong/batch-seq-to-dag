@@ -1,0 +1,29 @@
+schema: spec-driven
+
+context: |
+  Language: Korean (ko-KR)
+
+  모든 OpenSpec 산출물의 본문을 한국어로 작성한다.
+
+  다음 문서의 제목과 본문을 한국어로 작성한다.
+  - proposal.md
+  - design.md
+  - tasks.md
+  - specs/**/spec.md
+
+  코드, CLI 명령어, 식별자, 패키지명, 파일명과 경로는
+  영어 원문을 유지한다.
+
+  API, REST, HTTP, JWT, Node.js, TypeScript, Express, Prisma,
+  SQLite, Vitest 등의 기술 용어는 영어 원문을 유지한다.
+
+  OpenSpec이 문서를 분석하는 데 사용하는 구조 표기는
+  영어 원문을 유지한다.
+
+rules:
+  specs:
+    - "Requirement 제목과 Scenario 제목은 한국어로 작성한다."
+    - "요구사항 설명과 시나리오 본문은 한국어로 작성한다."
+    - "## ADDED Requirements, ## MODIFIED Requirements, ## REMOVED Requirements, ## RENAMED Requirements 표기는 영어로 유지한다."
+    - "### Requirement: 및 #### Scenario: 형식은 영어로 유지하되 뒤의 제목은 한국어로 작성한다."
+    - "SHALL, MUST, GIVEN, WHEN, THEN, AND 키워드는 영어로 유지하되 그 뒤의 내용은 한국어로 작성한다."
