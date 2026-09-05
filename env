@@ -1,0 +1,16 @@
+# MariaDB Docker image / container
+MARIADB_VERSION=11.4
+MARIADB_CONTAINER_NAME=seq-mariadb
+TZ=Asia/Seoul
+
+# MariaDB initialization + seq_docx_to_mariadb.py connection
+MARIADB_DATABASE=seq_metadata
+MARIADB_USER=seq_app
+MARIADB_PASSWORD=change_me_seq_app_password
+MARIADB_ROOT_PASSWORD=change_me_root_password
+
+# Python script runs on the Docker host.
+# If the Python app is later containerized in the same Compose network, use: MARIADB_HOST=mariadb
+MARIADB_HOST=127.0.0.1
+MARIADB_PORT=3306
+MARIADB_CONNECT_TIMEOUT=10
