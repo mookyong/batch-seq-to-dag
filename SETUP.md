@@ -1,3 +1,4 @@
+```bash
 mkdir langgraph_builer
 cd langgraph_builer
 
@@ -25,3 +26,4 @@ git add .
 git commit -m "Initial commit"
 
 openspec init
+```
