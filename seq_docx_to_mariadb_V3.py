@@ -78,6 +78,9 @@ except ImportError:  # dry-run은 .env 없이도 사용할 수 있도록 실행 
 
 # -----------------------------------------------------------------------------
 # 질문지 정의
+# - 이 구간은 "문서의 어떤 라벨을 어떤 컬럼/태그 의미로 볼 것인가"를
+#   한 곳에 모아두는 영역이다.
+# - 파서와 DB 적재 로직은 이 정의만 바라보고 동작한다.
 # -----------------------------------------------------------------------------
 
 @dataclass(frozen=True)
@@ -90,7 +93,7 @@ class FieldDef:
 
 
 FIELDS: Tuple[FieldDef, ...] = (
-    # 1. 기본 정보
+    # 1. 기본 정보: 문서 상단의 식별/설명성 항목
     FieldDef("SEQ명", "seq_name"),
     FieldDef("업무명", "business_name"),
     FieldDef("운영 부서 / 담당자", "owner"),
@@ -102,7 +105,7 @@ FIELDS: Tuple[FieldDef, ...] = (
     FieldDef("주요 결과물 / 사용처", "main_output_usage", placeholder="예: DW/DM 테이블, 보고서, 파일, 후속 업무"),
     FieldDef("주요 이용 업무 / 사용자", "main_user_business", placeholder="예: 점포 매출조회, 정산팀, BI 보고서"),
 
-    # 2. 실행 흐름 및 선후행 관계
+    # 2. 실행 흐름 및 선후행 관계: Airflow DAG 전환 시 가장 자주 쓰이는 정보
     FieldDef(
         "실행 시작 조건",
         "start_condition",
@@ -130,7 +133,7 @@ FIELDS: Tuple[FieldDef, ...] = (
         placeholder="예: SEQ 성공만 확인 / 결과 건수·금액·보고서까지 확인",
     ),
 
-    # 3. 장애 및 재처리 방식
+    # 3. 장애 및 재처리 방식: 운영 정책과 재기동 전략을 구조화
     FieldDef(
         "Job 실패 시 처리",
         "job_failure_action",
@@ -164,7 +167,7 @@ FIELDS: Tuple[FieldDef, ...] = (
         placeholder="예: 별도 보관 / 수동 보정 / 무시 / 해당없음",
     ),
 
-    # 4. 파라미터 / 알림 / 예외 규칙
+    # 4. 파라미터 / 알림 / 예외 규칙: 수동 운영과 예외 실행 기준을 보관
     FieldDef("주요 파라미터", "main_parameters", placeholder="예: 기준일자, 경로, 시스템 구분, 재처리 여부"),
     FieldDef("파일/데이터 대기", "file_data_wait", placeholder="대기 대상, 확인 주기, 타임아웃 기준을 입력해 주세요"),
     FieldDef("성공/실패 알림", "success_failure_notification", placeholder="알림 조건, 방식, 대상자를 입력해 주세요"),
@@ -172,7 +175,7 @@ FIELDS: Tuple[FieldDef, ...] = (
     FieldDef("정기 외 실행 사유", "non_regular_execution_reason", placeholder="예: 장애복구 / 데이터 정정 / 월말 추가 / 사용자 요청"),
     FieldDef("운영 확인 화면 / 로그", "operation_check_screen_log", placeholder="예: Director 로그, SQL 조회, 보고서, 파일 생성 결과"),
 
-    # 5. 운영상 중요 확인사항
+    # 5. 운영상 중요 확인사항: 전환 시 유지해야 할 운영 맥락
     FieldDef("가장 주의할 구간", "most_attention_section", placeholder="장애가 자주 발생하거나 운영 판단이 필요한 구간"),
     FieldDef("현재 운영 불편사항", "current_operation_pain_point", placeholder="수동 확인, 반복 작업, 재처리 어려움 등을 입력해 주세요"),
     FieldDef("전환 시 반드시 유지할 방식", "must_keep_after_transition", placeholder="Airflow 전환 후에도 유지되어야 하는 운영 규칙"),
@@ -180,7 +183,7 @@ FIELDS: Tuple[FieldDef, ...] = (
     FieldDef("지연/실패 시 영향", "delay_failure_impact", placeholder="영향 받는 후속 업무, 사용자, 보고서, 마감 등을 입력해 주세요"),
     FieldDef("업무상 핵심 결과", "business_critical_result", placeholder="반드시 정상이어야 하는 주요 테이블/수치/파일/보고서"),
 
-    # 6. 검증 기준 및 확인 절차
+    # 6. 검증 기준 및 확인 절차: 적재 후 검증/비교에 필요한 항목
     FieldDef("검증 수행 시점", "verification_timing", placeholder="예: 매일 실행 후 / 마감 후 / 장애·재처리 시 / 월말"),
     FieldDef(
         "현재 결과 확인 방법",
@@ -230,8 +233,8 @@ MATERIAL_OPTIONS: Tuple[str, ...] = (
     "기타 자료",
 )
 
-# python-docx cell.text가 Content Control 안의 텍스트를 누락할 수 있으므로
-# 아래 OOXML namespace를 직접 사용한다.
+# python-docx의 고수준 API는 Content Control 내부 텍스트를 놓칠 수 있다.
+# 그래서 이 스크립트는 OOXML 레벨에서 직접 읽는다.
 W_NS = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
 W14_NS = "http://schemas.microsoft.com/office/word/2010/wordml"
 
@@ -266,6 +269,7 @@ def _extract_xml_text(element: Any) -> str:
     name = _local_name(element.tag)
 
     if name == "sdt" and _is_checkbox_sdt(element):
+        # 체크박스는 실제 텍스트가 아니라 checked 상태를 문자로 렌더링한다.
         return "☒" if _checkbox_checked(element) else "☐"
 
     if name == "t":
@@ -347,8 +351,8 @@ def parse_choices(rendered_text: str, options: Sequence[str]) -> List[str]:
     if selected:
         return selected
 
-    # 체크 기호가 하나도 없고 전체 텍스트가 특정 옵션 하나와 동일한 경우
-    # (운영자가 선택하지 않은 옵션을 삭제해서 작성한 문서 지원)
+    # 체크 기호가 없더라도 문서가 "선택된 항목만 남긴 형태"로 저장된 경우가 있다.
+    # 이 경우는 단일 옵션만 정확히 일치할 때만 허용한다.
     stripped = text.strip(" ,;/|")
     exact = [opt for opt in options if stripped == opt]
     if len(exact) == 1:
@@ -396,7 +400,8 @@ def parse_footer_metadata(doc: Any) -> Tuple[Optional[str], str]:
         if "작성 완료일" not in text or "작성자" not in text:
             continue
 
-        # Content Control 내용까지 포함한 예: 작성 완료일: 2026-09-05 작성자: 홍길동
+        # 푸터의 메타데이터는 한 문단에 함께 들어있는 경우가 많다.
+        # 예: 작성 완료일: 2026-09-05 작성자: 홍길동
         m = re.search(
             r"작성\s*완료일\s*:\s*(.*?)\s+작성자\s*:\s*(.*)$",
             text,
@@ -421,7 +426,8 @@ def normalize_date_string(value: str) -> Optional[str]:
             return datetime.strptime(value, fmt).date().isoformat()
         except ValueError:
             pass
-    # 날짜가 아닌 자유기술은 DB DATE에 넣지 않고 raw payload에만 남긴다.
+    # 날짜로 해석할 수 없으면 강제로 변환하지 않는다.
+    # 이런 값은 DB DATE 컬럼에 넣지 않고 원문 payload에만 남긴다.
     return None
 
 
@@ -431,6 +437,8 @@ def parse_questionnaire(path: Path) -> ParsedQuestionnaire:
     selected: Dict[str, List[str]] = {}
     unmapped_labels: Dict[str, str] = {}
 
+    # 2열 표를 훑으면서 왼쪽 셀의 라벨을 기준으로 우측 값을 매핑한다.
+    # 행 순서가 바뀌어도 라벨이 같으면 같은 컬럼으로 들어가도록 설계했다.
     for table in doc.tables:
         for row in table.rows:
             if len(row.cells) < 2:
@@ -441,7 +449,7 @@ def parse_questionnaire(path: Path) -> ParsedQuestionnaire:
             value = extract_cell_text(row.cells[1])
             field = FIELD_BY_LABEL.get(label)
             if field is None:
-                # 질문처럼 보이는 2열 행만 기록한다.
+                # 스키마에 없는 라벨은 별도 보관해서 문서 변경을 추적할 수 있게 한다.
                 if value:
                     unmapped_labels[label] = value
                 continue
@@ -452,7 +460,7 @@ def parse_questionnaire(path: Path) -> ParsedQuestionnaire:
             else:
                 answers[field.column] = clean_text_answer(value, field.placeholder)
 
-    # 7. 사전 제공 가능 자료: 개정본은 1열 표
+    # 1열 표 영역은 "사전 제공 가능 자료"처럼 체크형 보조 정보가 들어간다.
     available_materials: List[str] = []
     for table in doc.tables:
         for row in table.rows:
@@ -465,6 +473,7 @@ def parse_questionnaire(path: Path) -> ParsedQuestionnaire:
 
     completion_date, author = parse_footer_metadata(doc)
 
+    # 1차 파싱 결과를 구조체로 묶고, 이후 tag 후보를 파생 생성한다.
     parsed = ParsedQuestionnaire(
         source_file=path.name,
         source_path=str(path.resolve()),
@@ -483,6 +492,8 @@ def parse_questionnaire(path: Path) -> ParsedQuestionnaire:
 
 # -----------------------------------------------------------------------------
 # Tag 후보 생성
+# - 여기는 "원문 답변"을 그대로 저장하는 것이 아니라,
+#   전환/분석에 유용한 후보 태그를 규칙 기반으로 유도하는 단계다.
 # -----------------------------------------------------------------------------
 
 NEGATIVE_TEXT = {
@@ -521,9 +532,10 @@ def generate_tag_candidates(parsed: ParsedQuestionnaire) -> List[Dict[str, Any]]
     tags: List[Dict[str, Any]] = []
 
     def add(category: str, name: str, field: str, value: str, rule: str, confidence: float = 1.0, review: bool = False) -> None:
+        # 내부 헬퍼로 tag 딕셔너리 생성 코드를 한 줄로 줄인다.
         tags.append(_tag(category, name, field, value, rule, confidence, review))
 
-    # 실행 주기
+    # 실행 주기: 선택값을 운영/전환 태그로 변환
     cycle_map = {
         "일배치": "cycle_daily",
         "주배치": "cycle_weekly",
@@ -535,11 +547,11 @@ def generate_tag_candidates(parsed: ParsedQuestionnaire) -> List[Dict[str, Any]]
         if value in cycle_map:
             add("cycle", cycle_map[value], "execution_cycle", value, "CYCLE_001")
 
-    # 운영 중요도: '상'만 critical 후보로 생성. 중/하는 tag보다 meta 성격이 강하므로 raw 값으로 보존.
+    # 운영 중요도: '상'만 운영 중요 태그로 승격하고, 나머지는 원문 값으로만 남긴다.
     if "상" in s.get("operational_importance", []):
         add("operation", "critical", "operational_importance", "상", "OPS_001")
 
-    # 시작 조건
+    # 시작 조건: 스케줄/의존성/파일/수동 실행 등으로 분리
     start_map = {
         "정해진 시간": "trigger_schedule",
         "선행 SEQ/Job 완료": "trigger_dependency",
@@ -553,16 +565,16 @@ def generate_tag_candidates(parsed: ParsedQuestionnaire) -> List[Dict[str, Any]]
             category = "run" if value == "수동 실행" else "trigger"
             add(category, start_map[value], "start_condition", value, "TRG_001")
 
-    # 외부 의존/대기
+    # 외부 의존/대기: 문장형 입력이라도 의미가 있으면 dependency 태그 후보를 만든다.
     if has_positive_text(a.get("external_dependency", "")) or has_positive_text(a.get("file_data_wait", "")):
         src = a.get("external_dependency", "") or a.get("file_data_wait", "")
         add("trigger", "external_dependency", "external_dependency", src, "TRG_002", 0.95)
 
-    # 병렬성
+    # 병렬성: 병렬 실행 여부는 DAG 분기 설계에 직접 영향을 준다.
     if "있음" in s.get("parallel_execution", []):
         add("operation", "parallel_run", "parallel_execution", "있음", "OPS_002")
 
-    # 재처리
+    # 재처리: 전체/실패지점/부분/상황별 판단으로 분류
     rerun_map = {
         "전체 재실행": "reprocess_full",
         "실패 Job부터": "reprocess_failed",
@@ -576,12 +588,12 @@ def generate_tag_candidates(parsed: ParsedQuestionnaire) -> List[Dict[str, Any]]
         if value in rerun_map:
             add("operation", rerun_map[value], "reprocessing_method", value, "RERUN_002")
 
-    # 자동 재시도
+    # 자동 재시도: 완전 무재시도뿐 아니라 Job별 상이한 경우도 유의미한 신호로 본다.
     if "있음" in s.get("auto_retry", []) or "Job별 상이" in s.get("auto_retry", []):
         value = ", ".join(s.get("auto_retry", []))
         add("operation", "retry_available", "auto_retry", value, "OPS_003")
 
-    # 수동 운영 / 파라미터 / 예외 / 알림
+    # 수동 운영 / 파라미터 / 예외 / 알림: 운영자가 직접 개입하는 흔적을 태그화
     if has_positive_text(a.get("manual_operation", "")):
         add("operation", "manual_operation", "manual_operation", a["manual_operation"], "OPS_004")
     if has_positive_text(a.get("main_parameters", "")):
@@ -593,7 +605,7 @@ def generate_tag_candidates(parsed: ParsedQuestionnaire) -> List[Dict[str, Any]]
     if has_positive_text(a.get("success_failure_notification", "")):
         add("operation", "alert_required", "success_failure_notification", a["success_failure_notification"], "OPS_008", 0.9)
 
-    # 검증 방식
+    # 검증 방식: 결과를 어떤 근거로 확인하는지에 대한 단서
     verify_map = {
         "건수": "verify_count",
         "금액/수량 합계": "verify_sum",
@@ -606,7 +618,8 @@ def generate_tag_candidates(parsed: ParsedQuestionnaire) -> List[Dict[str, Any]]
         if value in verify_map:
             add("verification", verify_map[value], "verification_method", value, "VER_001")
 
-    # 비교 기준은 실행 tag라기보다는 검증 policy 메타데이터에 가깝지만 후보 tag로 남긴다.
+    # 비교 기준은 실행 태그라기보다 검증 정책 메타데이터지만,
+    # 실제 전환 시 검증 설계에 중요하므로 후보로 남긴다.
     ref_map = {
         "원천 데이터": "verify_ref_source",
         "기존 DW/DM": "verify_ref_legacy_dw_dm",
@@ -619,7 +632,7 @@ def generate_tag_candidates(parsed: ParsedQuestionnaire) -> List[Dict[str, Any]]
         if value in ref_map:
             add("verification_reference", ref_map[value], "comparison_reference", value, "VER_002")
 
-    # 검증 정책
+    # 검증 정책: 허용 오차나 판단 기준을 별도 태그로 모델링
     tolerance_map = {
         "완전 일치 필요": "policy_strict",
         "일부 차이 허용": "policy_tolerance",
@@ -630,11 +643,11 @@ def generate_tag_candidates(parsed: ParsedQuestionnaire) -> List[Dict[str, Any]]
         if value in tolerance_map:
             add("verification_policy", tolerance_map[value], "difference_tolerance", value, "VER_003")
 
-    # NULL/중복/누락을 실제 운영에서 확인한다고 기술한 경우
+    # NULL/중복/누락을 실제 운영에서 확인한다고 기술한 경우만 품질 태그 생성
     if has_positive_text(a.get("null_duplicate_missing_check", "")):
         add("verification", "verify_data_quality", "null_duplicate_missing_check", a["null_duplicate_missing_check"], "VER_004", 0.9)
 
-    # MASTER / 시점
+    # MASTER / 시점: 기준정보가 존재하거나 시점 영향이 있는지 추적
     if "있음" in s.get("master_reference", []):
         add("data", "data_master_ref", "master_reference", "있음", "DATA_001")
     elif "모름/확인 필요" in s.get("master_reference", []):
@@ -650,7 +663,7 @@ def generate_tag_candidates(parsed: ParsedQuestionnaire) -> List[Dict[str, Any]]
         if value in master_time_map:
             add("data", master_time_map[value], "historical_master_available", value, "DATA_003")
 
-    # 이력 비교기간이 구체적으로 작성된 경우에만 history 후보 생성
+    # 이력 비교기간이 구체적일 때만 추가 태그를 만든다.
     history_period = a.get("history_comparable_period", "")
     if has_positive_text(history_period) and "확인 필요" not in history_period:
         add("data", "data_history", "history_comparable_period", history_period, "DATA_004", 0.85, True)
@@ -664,7 +677,7 @@ def generate_tag_candidates(parsed: ParsedQuestionnaire) -> List[Dict[str, Any]]
         if value in rerun_result_map:
             add("verification_policy", rerun_result_map[value], "past_date_rerun_result", value, "VER_005")
 
-    # 중복 tag 제거: 동일 이름은 최초 규칙 유지
+    # 같은 tag_name이 여러 규칙에서 생성되면 최초 규칙만 남긴다.
     dedup: Dict[str, Dict[str, Any]] = {}
     for item in tags:
         dedup.setdefault(item["tag_name"], item)
@@ -673,6 +686,8 @@ def generate_tag_candidates(parsed: ParsedQuestionnaire) -> List[Dict[str, Any]]
 
 # -----------------------------------------------------------------------------
 # MariaDB DDL / 적재
+# - 메인 테이블은 질문지 1건의 정규화된 스냅샷을 저장한다.
+# - 태그 테이블은 1건에서 파생된 여러 후보 태그를 별도 행으로 저장한다.
 # -----------------------------------------------------------------------------
 
 MAIN_TABLE = "seq_operator_questionnaire"
@@ -807,6 +822,7 @@ def parsed_to_row(parsed: ParsedQuestionnaire) -> Dict[str, Any]:
     a = parsed.answers
     s = parsed.selected
 
+    # answers/selected를 DB 컬럼 형태로 평탄화한다.
     row: Dict[str, Any] = {
         "seq_name": a.get("seq_name", ""),
         "business_name": a.get("business_name", ""),
@@ -929,6 +945,7 @@ def connect_db():
 
 
 def ensure_schema(conn: Any) -> None:
+    # 테이블이 없으면 생성하고, 있으면 그대로 둔다.
     with conn.cursor() as cur:
         cur.execute(DDL_MAIN)
         cur.execute(DDL_TAG)
@@ -943,7 +960,7 @@ def upsert_questionnaire(conn: Any, parsed: ParsedQuestionnaire) -> Tuple[int, s
     update_cols = [c for c in columns if c != "seq_name"]
     update_sql = ", ".join(f"`{c}`=VALUES(`{c}`)" for c in update_cols)
 
-    # LAST_INSERT_ID(id)를 사용하면 INSERT/UPDATE 모두 cursor.lastrowid로 id 획득 가능
+    # ON DUPLICATE KEY UPDATE 후에도 방금 대상이 된 id를 얻기 위해 LAST_INSERT_ID(id)를 사용한다.
     sql = f"""
         INSERT INTO {MAIN_TABLE} ({col_sql})
         VALUES ({placeholders})
@@ -956,7 +973,8 @@ def upsert_questionnaire(conn: Any, parsed: ParsedQuestionnaire) -> Tuple[int, s
         cur.execute(sql, [row[c] if row[c] != "" else None for c in columns])
         questionnaire_id = int(cur.lastrowid)
 
-        # tag 후보는 현재 질문지 기준으로 완전 재생성
+        # 태그는 매번 다시 계산해 저장한다.
+        # 문서가 바뀌면 이전 태그를 덮어쓰는 방식이라 결과가 항상 현재 문서와 일치한다.
         cur.execute(f"DELETE FROM {TAG_TABLE} WHERE questionnaire_id=%s", (questionnaire_id,))
         if parsed.tags:
             tag_sql = f"""
@@ -987,6 +1005,7 @@ def upsert_questionnaire(conn: Any, parsed: ParsedQuestionnaire) -> Tuple[int, s
 
 # -----------------------------------------------------------------------------
 # CLI
+# - 입력 수집 -> 파싱 -> dry-run 또는 DB 적재 순으로 진행한다.
 # -----------------------------------------------------------------------------
 
 def iter_docx_inputs(inputs: Sequence[str], recursive: bool) -> Iterable[Path]:
@@ -1010,7 +1029,7 @@ def iter_docx_inputs(inputs: Sequence[str], recursive: bool) -> Iterable[Path]:
                     seen.add(rp)
                     yield p
             continue
-        # shell glob을 따옴표로 넘긴 경우 간단 지원
+        # shell glob을 따옴표로 넘긴 경우에도 직접 확장해서 처리한다.
         parent = path.parent if str(path.parent) != "" else Path(".")
         for p in sorted(parent.glob(path.name)):
             if p.is_file() and p.suffix.lower() == ".docx" and not p.name.startswith("~$"):
@@ -1071,7 +1090,7 @@ def load_environment(env_file: str, required: bool) -> None:
             raise RuntimeError("python-dotenv가 필요합니다: pip install python-dotenv")
         load_dotenv(dotenv_path=path, override=False)
     elif required:
-        # .env 파일이 없어도 Docker/CI에서 필수 변수가 이미 주입된 경우는 허용한다.
+        # dry-run이 아닌데도 .env가 없으면, 최소한 핵심 DB 변수는 외부에서 주입돼야 한다.
         needed = ("MARIADB_USER", "MARIADB_PASSWORD", "MARIADB_DATABASE")
         if not all(os.getenv(k, "").strip() for k in needed):
             raise RuntimeError(
@@ -1101,7 +1120,8 @@ def masked_db_target() -> str:
 def main() -> int:
     args = build_parser().parse_args()
 
-    # dry-run은 DB가 필요 없지만, .env가 존재하면 동일하게 로드해 실행환경을 일관되게 유지한다.
+    # dry-run은 DB가 필요 없지만, 가능하면 동일한 환경 로딩 경로를 타서
+    # 실제 실행과 파싱 결과가 최대한 비슷하도록 유지한다.
     load_environment(args.env_file, required=not args.dry_run)
 
     files = list(iter_docx_inputs(args.inputs, args.recursive))
@@ -1118,8 +1138,10 @@ def main() -> int:
             seq_name = parsed.answers.get("seq_name", "").strip()
             if not seq_name:
                 if args.dry_run:
+                    # dry-run은 파싱 확인이 목적이므로 빈 SEQ명도 그대로 보여준다.
                     pass
                 elif args.allow_missing_seq:
+                    # 실제 적재에서는 seq_name이 유일키이므로, 파일명 기반 임시값을 부여한다.
                     parsed.answers["seq_name"] = f"__FILE__:{path.stem}"
                 else:
                     raise ValueError("SEQ명이 비어 있습니다. --allow-missing-seq로 임시 적재 가능")
@@ -1128,6 +1150,7 @@ def main() -> int:
             errors.append(f"{path}: {exc}")
 
     if args.dry_run:
+        # DB에 쓰지 않고, 파싱 결과와 태그 후보만 사람이 검토할 수 있게 출력한다.
         for i, parsed in enumerate(parsed_docs):
             if i:
                 print("\n" + "=" * 100 + "\n")
@@ -1138,16 +1161,19 @@ def main() -> int:
                 print(f"- {e}", file=sys.stderr)
         return 1 if errors else 0
 
+    # 실제 적재 경로에서는 DB 접속에 필요한 핵심 변수 존재 여부를 먼저 보장한다.
     validate_db_env()
     print(f"[DB] {masked_db_target()}")
     conn = connect_db()
     try:
+        # 테이블이 없으면 생성하고, 있으면 그대로 사용한다.
         ensure_schema(conn)
         success = 0
         for parsed in parsed_docs:
             try:
                 qid, action = upsert_questionnaire(conn, parsed)
                 tag_names = [t["tag_name"] for t in parsed.tags]
+                # 사람 눈으로 빠르게 핵심 결과를 확인할 수 있도록 요약 로그를 남긴다.
                 print(
                     f"[OK] seq={parsed.answers.get('seq_name')} id={qid} "
                     f"tags={len(tag_names)} file={parsed.source_file}"

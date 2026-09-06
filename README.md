@@ -51,6 +51,38 @@ python seq_docx_to_mariadb_V3.py ./answers --recursive --allow-missing-seq
 python seq_docx_to_mariadb_V3.py ./answers --recursive --env-file .env.dev
 ```
 
+Excel 입력 파일 생성:
+
+```bash
+python generate_dag_excel.py --output dag_generation_input.xlsx --overwrite
+```
+
+seq_name별로 개별 파일을 만들려면:
+
+```bash
+python generate_dag_excel.py --split-by-seq --output-dir dag_split_out --overwrite
+```
+
+대상 seq_name만 지정하려면:
+
+```bash
+python generate_dag_excel.py --seq-name SEQ_PRODUCT_MASTER --output product_master.xlsx --overwrite
+```
+
+DAG Python 코드 생성:
+
+```bash
+python generate_dag_py.py --input dag_generation_input.xlsx --output-dir dags --overwrite
+```
+
+seq_name별로 개별 DAG 파일을 만들려면:
+
+```bash
+python generate_dag_py.py --input dag_generation_input.xlsx --split-by-seq --output-dir dags --overwrite
+```
+
+생성된 DAG 파일은 `dags/` 폴더에 저장됩니다.
+
 ## 환경변수
 
 - `MARIADB_HOST`
@@ -73,3 +105,13 @@ docker compose exec mariadb mariadb -u"$MARIADB_USER" -p"$MARIADB_PASSWORD" "$MA
 - `SEQ_INTERVIEW`
 - `SEQ_INTERVIEW_OPTION`
 - `SEQ_INTERVIEW_RAW`
+
+관련 문서:
+
+- `seq_docx_to_mariadb_V3.md`
+- `seq_operator_questionnaire.md`
+- `seq_operator_questionnaire_tag.md`
+- `Excel시트별템플릿.md`
+- `generate_dag_excel.md`
+- `DAG 자동생성매핑표.md`
+- `DAG Python 생성 규칙표.md`
